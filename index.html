@@ -2,12 +2,12 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>Insurance Quiz Generator</title>
+<title>Insurance Quiz Generator (Image Based)</title>
 
 <style>
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont;
+  font-family: system-ui;
   background: #f2f4f7;
 }
 
@@ -21,7 +21,7 @@ body {
 }
 
 .panel {
-  background: #ffffff;
+  background: #fff;
   border-radius: 14px;
   padding: 20px;
   box-shadow: 0 6px 20px rgba(0,0,0,0.08);
@@ -35,13 +35,10 @@ label {
   display: block;
 }
 
-input {
+input[type="password"],
+input[type="file"] {
   width: 100%;
-  padding: 10px;
   margin-top: 6px;
-  border-radius: 8px;
-  border: 1px solid #ccc;
-  font-size: 14px;
 }
 
 button {
@@ -57,10 +54,6 @@ button {
   cursor: pointer;
 }
 
-button:hover {
-  background: #1e4fd6;
-}
-
 .right {
   overflow-y: auto;
 }
@@ -72,17 +65,6 @@ button:hover {
   margin-bottom: 16px;
 }
 
-.question-title {
-  font-weight: 700;
-  margin-bottom: 10px;
-}
-
-.option {
-  padding: 6px 0;
-  font-size: 14px;
-}
-
-/* LOG PANEL */
 .log-panel {
   position: absolute;
   bottom: 12px;
@@ -95,16 +77,10 @@ button:hover {
   padding: 10px;
   font-size: 12px;
   overflow-y: auto;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
-}
-
-.log {
-  margin-bottom: 4px;
 }
 
 .log.ok { color: #22c55e; }
 .log.info { color: #38bdf8; }
-.log.warn { color: #facc15; }
 .log.error { color: #f87171; }
 </style>
 </head>
@@ -113,22 +89,22 @@ button:hover {
 
 <div class="container">
 
-  <!-- SOL PANEL -->
+  <!-- SOL -->
   <div class="panel">
     <h2>Sigorta Ürününden Soru Üret</h2>
 
-    <label>Ürün Sayfası Linki</label>
-    <input id="urlInput" placeholder="https://..." />
-
     <label>OpenAI API Key</label>
-    <input id="apiKeyInput" type="password" placeholder="sk-..." />
+    <input id="apiKey" type="password" placeholder="sk-..." />
 
-    <button onclick="generateQuestions()">Soruları Oluştur</button>
+    <label>Ürün Ekran Görüntüleri (max 5)</label>
+    <input id="images" type="file" accept="image/*" multiple />
+
+    <button onclick="generate()">Soruları Oluştur</button>
 
     <div class="log-panel" id="logPanel"></div>
   </div>
 
-  <!-- SAĞ PANEL -->
+  <!-- SAĞ -->
   <div class="panel right" id="output">
     <h2>Oluşturulan Sorular</h2>
   </div>
@@ -138,113 +114,103 @@ button:hover {
 <script>
 let sessionApiKey = null;
 
-function log(message, type = "info") {
-  const panel = document.getElementById("logPanel");
-  const div = document.createElement("div");
-  div.className = `log ${type}`;
-  div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-  panel.appendChild(div);
-  panel.scrollTop = panel.scrollHeight;
+function log(msg, type="info") {
+  const p = document.getElementById("logPanel");
+  const d = document.createElement("div");
+  d.className = "log " + type;
+  d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  p.appendChild(d);
+  p.scrollTop = p.scrollHeight;
 }
 
-async function generateQuestions() {
-  const url = document.getElementById("urlInput").value;
-  sessionApiKey = document.getElementById("apiKeyInput").value;
+function toBase64(file) {
+  return new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload = () => res(reader.result.split(",")[1]);
+    reader.onerror = rej;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function generate() {
+  const apiKey = document.getElementById("apiKey").value;
+  const files = [...document.getElementById("images").files];
   const output = document.getElementById("output");
-  const logPanel = document.getElementById("logPanel");
+  document.getElementById("logPanel").innerHTML = "";
 
-  logPanel.innerHTML = "";
-
-  if (!url || !sessionApiKey) {
-    log("Link veya API key eksik", "error");
+  if (!apiKey || files.length === 0) {
+    log("API key veya görsel eksik", "error");
     return;
   }
 
-  try {
-    log("Süreç başlatıldı", "ok");
-    output.innerHTML = "<h2>Sorular oluşturuluyor...</h2>";
+  if (files.length > 5) {
+    log("En fazla 5 görsel yüklenebilir", "error");
+    return;
+  }
 
-    log("Ürün sayfası çekiliyor...");
-    const pageHtml = await fetch(url).then(r => r.text());
-    log("Sayfa başarıyla alındı", "ok");
+  sessionApiKey = apiKey;
+  log("Süreç başlatıldı", "ok");
 
-    log("HTML temizleniyor...");
-    const pageText = pageHtml
-      .replace(/<script[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[\s\S]*?<\/style>/gi, "")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .substring(0, 6000);
-    log("Metin çıkarıldı", "ok");
+  log("Görseller base64'e çevriliyor...");
+  const images = await Promise.all(files.map(toBase64));
+  log("Görseller hazır", "ok");
 
-    log("Prompt hazırlanıyor...");
-    const prompt = `
-Aşağıdaki sigorta ürünü bilgilerine dayanarak:
+  log("GPT Vision çağrısı yapılıyor...");
+  output.innerHTML = "<h2>Sorular oluşturuluyor...</h2>";
+
+  const content = [
+    {
+      type: "text",
+      text: `
+Bu görseller bir sigorta ürününe aittir.
 
 - Türkçe
 - 10 adet BASİT soru oluştur
 - Her soru 5 şıklı olsun (A–E)
 - Cevap verme
-- Hedef kitle: teknik olmayan sigorta müşterisi
+- Hedef kitle: teknik olmayan müşteri
 
-ÇIKTIYI SADECE JSON olarak ver:
+ÇIKTI SADECE JSON olsun:
 
 [
-  {
-    "question": "...",
-    "options": ["A) ...", "B) ...", "C) ...", "D) ...", "E) ..."]
-  }
+ { "question": "...", "options": ["A)...","B)...","C)...","D)...","E)..."] }
 ]
+`
+    },
+    ...images.map(img => ({
+      type: "image_url",
+      image_url: { url: "data:image/png;base64," + img }
+    }))
+  ];
 
-METİN:
-${pageText}
-`;
-    log("GPT çağrısı yapılıyor...");
-
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + sessionApiKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.4
-      })
-    });
-
-    log("GPT cevabı alındı", "ok");
-
-    const data = await response.json();
-    const questions = JSON.parse(data.choices[0].message.content);
-
-    log("Sorular parse edildi", "ok");
-    renderQuestions(questions);
-    log("Sorular ekrana yazdırıldı", "ok");
-
-  } catch (err) {
-    console.error(err);
-    log("HATA: " + err.message, "error");
-    output.innerHTML = "<h2>Bir hata oluştu</h2>";
-  }
-}
-
-function renderQuestions(questions) {
-  const output = document.getElementById("output");
-  output.innerHTML = "<h2>Oluşturulan Sorular</h2>";
-
-  questions.forEach((q, i) => {
-    const div = document.createElement("div");
-    div.className = "question";
-
-    div.innerHTML = `
-      <div class="question-title">${i + 1}. ${q.question}</div>
-      ${q.options.map(o => `<div class="option">${o}</div>`).join("")}
-    `;
-
-    output.appendChild(div);
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + sessionApiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      messages: [{ role: "user", content }],
+      temperature: 0.4
+    })
   });
+
+  log("GPT cevabı alındı", "ok");
+
+  const data = await resp.json();
+  const questions = JSON.parse(data.choices[0].message.content);
+
+  output.innerHTML = "<h2>Oluşturulan Sorular</h2>";
+  questions.forEach((q,i)=>{
+    output.innerHTML += `
+      <div class="question">
+        <b>${i+1}. ${q.question}</b>
+        ${q.options.map(o=>`<div>${o}</div>`).join("")}
+      </div>`;
+  });
+
+  log("Sorular başarıyla oluşturuldu", "ok");
 }
 </script>
 
