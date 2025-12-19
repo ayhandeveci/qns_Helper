@@ -2,12 +2,12 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>Insurance Quiz Generator (Image Based)</title>
+<title>Insurance Quiz Generator (Vision)</title>
 
 <style>
 body {
   margin: 0;
-  font-family: system-ui;
+  font-family: system-ui, -apple-system;
   background: #f2f4f7;
 }
 
@@ -35,8 +35,7 @@ label {
   display: block;
 }
 
-input[type="password"],
-input[type="file"] {
+input {
   width: 100%;
   margin-top: 6px;
 }
@@ -70,7 +69,7 @@ button {
   bottom: 12px;
   left: 12px;
   right: 12px;
-  max-height: 160px;
+  max-height: 170px;
   background: #0f172a;
   color: #e5e7eb;
   border-radius: 10px;
@@ -81,6 +80,7 @@ button {
 
 .log.ok { color: #22c55e; }
 .log.info { color: #38bdf8; }
+.log.warn { color: #facc15; }
 .log.error { color: #f87171; }
 </style>
 </head>
@@ -89,7 +89,7 @@ button {
 
 <div class="container">
 
-  <!-- SOL -->
+  <!-- SOL PANEL -->
   <div class="panel">
     <h2>Sigorta Ürününden Soru Üret</h2>
 
@@ -104,7 +104,7 @@ button {
     <div class="log-panel" id="logPanel"></div>
   </div>
 
-  <!-- SAĞ -->
+  <!-- SAĞ PANEL -->
   <div class="panel right" id="output">
     <h2>Oluşturulan Sorular</h2>
   </div>
@@ -151,17 +151,18 @@ async function generate() {
   sessionApiKey = apiKey;
   log("Süreç başlatıldı", "ok");
 
-  log("Görseller base64'e çevriliyor...");
-  const images = await Promise.all(files.map(toBase64));
-  log("Görseller hazır", "ok");
+  try {
+    log("Görseller base64'e çevriliyor...");
+    const images = await Promise.all(files.map(toBase64));
+    log("Görseller hazır", "ok");
 
-  log("GPT Vision çağrısı yapılıyor...");
-  output.innerHTML = "<h2>Sorular oluşturuluyor...</h2>";
+    log("GPT Vision çağrısı yapılıyor...");
+    output.innerHTML = "<h2>Sorular oluşturuluyor...</h2>";
 
-  const content = [
-    {
-      type: "text",
-      text: `
+    const content = [
+      {
+        type: "text",
+        text: `
 Bu görseller bir sigorta ürününe aittir.
 
 - Türkçe
@@ -170,47 +171,74 @@ Bu görseller bir sigorta ürününe aittir.
 - Cevap verme
 - Hedef kitle: teknik olmayan müşteri
 
-ÇIKTI SADECE JSON olsun:
+JSON dışında TEK BİR KARAKTER bile yazma.
+Kod bloğu kullanma.
 
+ÇIKTI FORMAT:
 [
- { "question": "...", "options": ["A)...","B)...","C)...","D)...","E)..."] }
+  {
+    "question": "...",
+    "options": ["A) ...","B) ...","C) ...","D) ...","E) ..."]
+  }
 ]
 `
-    },
-    ...images.map(img => ({
-      type: "image_url",
-      image_url: { url: "data:image/png;base64," + img }
-    }))
-  ];
+      },
+      ...images.map(img => ({
+        type: "image_url",
+        image_url: { url: "data:image/png;base64," + img }
+      }))
+    ];
 
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer " + sessionApiKey,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "gpt-4o",
-      messages: [{ role: "user", content }],
-      temperature: 0.4
-    })
-  });
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + sessionApiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [{ role: "user", content }],
+        temperature: 0.4
+      })
+    });
 
-  log("GPT cevabı alındı", "ok");
+    log("GPT cevabı alındı", "ok");
 
-  const data = await resp.json();
-  const questions = JSON.parse(data.choices[0].message.content);
+    const data = await resp.json();
+    const raw = data.choices[0].message.content;
 
-  output.innerHTML = "<h2>Oluşturulan Sorular</h2>";
-  questions.forEach((q,i)=>{
-    output.innerHTML += `
-      <div class="question">
-        <b>${i+1}. ${q.question}</b>
-        ${q.options.map(o=>`<div>${o}</div>`).join("")}
-      </div>`;
-  });
+    log("GPT ham çıktı alındı, parse ediliyor...");
 
-  log("Sorular başarıyla oluşturuldu", "ok");
+    let jsonText = raw
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+
+    let questions;
+    try {
+      questions = JSON.parse(jsonText);
+      log("JSON başarıyla parse edildi", "ok");
+    } catch (e) {
+      log("JSON parse edilemedi!", "error");
+      console.error("GPT RAW OUTPUT:", raw);
+      throw e;
+    }
+
+    output.innerHTML = "<h2>Oluşturulan Sorular</h2>";
+    questions.forEach((q, i) => {
+      output.innerHTML += `
+        <div class="question">
+          <b>${i + 1}. ${q.question}</b>
+          ${q.options.map(o => `<div>${o}</div>`).join("")}
+        </div>`;
+    });
+
+    log("Sorular başarıyla oluşturuldu", "ok");
+
+  } catch (err) {
+    log("HATA: " + err.message, "error");
+    output.innerHTML = "<h2>Bir hata oluştu</h2>";
+  }
 }
 </script>
 
