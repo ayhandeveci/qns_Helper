@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Insurance Quiz Generator</title>
+
+<style>
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont;
+  background: #f2f4f7;
+}
+
+.container {
+  display: grid;
+  grid-template-columns: 35% 65%;
+  height: 100vh;
+  gap: 16px;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.panel {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+}
+
+label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 12px;
+  display: block;
+}
+
+input {
+  width: 100%;
+  padding: 10px;
+  margin-top: 6px;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+  font-size: 14px;
+}
+
+button {
+  margin-top: 16px;
+  width: 100%;
+  padding: 12px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1e4fd6;
+}
+
+.right {
+  overflow-y: auto;
+}
+
+.question {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.question-title {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.option {
+  padding: 6px 0;
+  font-size: 14px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <!-- SOL PANEL -->
+  <div class="panel">
+    <h2>Sigorta Ürününden Soru Üret</h2>
+
+    <label>Ürün Sayfası Linki</label>
+    <input id="urlInput" placeholder="https://..." />
+
+    <label>OpenAI API Key</label>
+    <input id="apiKeyInput" type="password" placeholder="sk-..." />
+
+    <button onclick="generateQuestions()">Soruları Oluştur</button>
+
+    <p style="font-size:12px;color:#666;margin-top:12px;">
+      API key sadece bu oturumda bellekte tutulur.
+    </p>
+  </div>
+
+  <!-- SAĞ PANEL -->
+  <div class="panel right" id="output">
+    <h2>Oluşturulan Sorular</h2>
+  </div>
+
+</div>
+
+<script>
+let sessionApiKey = null;
+
+async function generateQuestions() {
+  const url = document.getElementById("urlInput").value;
+  sessionApiKey = document.getElementById("apiKeyInput").value;
+  const output = document.getElementById("output");
+
+  if (!url || !sessionApiKey) {
+    alert("Link ve API key girilmelidir.");
+    return;
+  }
+
+  output.innerHTML = "<h2>Sorular oluşturuluyor...</h2>";
+
+  // Sayfayı çek
+  const pageHtml = await fetch(url).then(r => r.text());
+
+  // HTML'i kaba şekilde text'e indir
+  const pageText = pageHtml
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .substring(0, 6000);
+
+  const prompt = `
+Aşağıdaki sigorta ürünü bilgilerine dayanarak:
+
+- Türkçe
+- 10 adet BASİT soru oluştur
+- Her soru 5 şıklı olsun (A–E)
+- Cevap verme
+- Hedef kitle: teknik olmayan sigorta müşterisi
+
+ÇIKTIYI SADECE JSON olarak ver:
+
+[
+  {
+    "question": "...",
+    "options": ["A) ...", "B) ...", "C) ...", "D) ...", "E) ..."]
+  }
+]
+
+METİN:
+${pageText}
+`;
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + sessionApiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.4
+    })
+  });
+
+  const data = await response.json();
+  const questions = JSON.parse(data.choices[0].message.content);
+
+  renderQuestions(questions);
+}
+
+function renderQuestions(questions) {
+  const output = document.getElementById("output");
+  output.innerHTML = "<h2>Oluşturulan Sorular</h2>";
+
+  questions.forEach((q, i) => {
+    const div = document.createElement("div");
+    div.className = "question";
+
+    div.innerHTML = `
+      <div class="question-title">${i + 1}. ${q.question}</div>
+      ${q.options.map(o => `<div class="option">${o}</div>`).join("")}
+    `;
+
+    output.appendChild(div);
+  });
+}
+</script>
+
+</body>
+</html>
